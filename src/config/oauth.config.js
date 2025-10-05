@@ -24,12 +24,20 @@ module.exports = {
 
   // Required scopes for Office 365 scanning
   // Using minimal read-only permissions
-  scopes: [
-    'User.Read.All',      // Read all user profiles (required for user scanning)
-    'Files.Read.All',     // Read files in all site collections (required for OneDrive scanning)
-    'Calendars.Read',     // Read calendars (required for calendar event scanning)
-    'offline_access'      // Maintain access to data (for token refresh)
-  ],
+  // Set SCAN_MODE=user_only for single-user scanning with reduced permissions
+  scopes: process.env.SCAN_MODE === 'user_only' 
+    ? [
+        'User.Read',          // Read signed-in user profile only
+        'Files.Read',         // Read user's own files only
+        'Calendars.Read',     // Read user's own calendars only
+        'offline_access'      // Maintain access to data (for token refresh)
+      ]
+    : [
+        'User.Read.All',      // Read all user profiles (required for org-wide scanning)
+        'Files.Read.All',     // Read files in all site collections
+        'Calendars.Read',     // Read calendars (works for all users in org-wide mode)
+        'offline_access'      // Maintain access to data (for token refresh)
+      ],
 
   // Graph API configuration
   graphApiEndpoint: 'https://graph.microsoft.com/v1.0',

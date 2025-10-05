@@ -4,7 +4,9 @@ A comprehensive Office 365 Scanner that authenticates with Microsoft Graph API, 
 
 ## Quick Start
 
-**New in this version:** Zero-configuration database setup! No PostgreSQL installation or password required.
+**New in this version:** 
+- **Zero-configuration database setup!** No PostgreSQL installation or password required.
+- **Flexible permission model:** Choose between organization-wide or user-only scanning.
 
 ```bash
 # 1. Install dependencies
@@ -22,6 +24,22 @@ npm start
 ```
 
 That's it! The application will use SQLite by default with zero configuration.
+
+### Scanning Modes
+
+The application supports two scanning modes:
+
+1. **Organization-Wide Mode** (default)
+   - Scans all users, files, and calendars in your organization
+   - Requires admin consent for `User.Read.All` and `Files.Read.All` permissions
+   - Ideal for IT administrators and compliance teams
+
+2. **User-Only Mode** (privacy-focused)
+   - Scans only the authenticated user's own data
+   - Requires minimal permissions: `User.Read`, `Files.Read`, `Calendars.Read`
+   - No admin consent needed
+   - Perfect for individual users or privacy-sensitive environments
+   - Enable by setting `SCAN_MODE=user_only` in your `.env` file
 
 ## Features
 
@@ -58,6 +76,8 @@ Before you begin, ensure you have the following installed:
 
 ## Azure AD Application Setup
 
+### For Organization-Wide Scanning (Default)
+
 1. Go to [Azure Portal](https://portal.azure.com)
 2. Navigate to **Azure Active Directory** > **App registrations**
 3. Click **New registration**
@@ -72,24 +92,25 @@ Before you begin, ensure you have the following installed:
 9. Go to **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**
 10. Add the following **read-only** permissions:
     - `User.Read.All` - Read all user profiles
-    - `Files.Read.All` - Read files in OneDrive
-    - `Calendars.Read` - Read calendar events
+    - `Files.Read.All` - Read files in OneDrive for all users
+    - `Calendars.Read` - Read calendar events for all users
     - `offline_access` - Maintain access to data
-11. Click **Grant admin consent**
+11. Click **Grant admin consent** (requires admin privileges)
 
-**Note on Permissions:** These are the minimum required read-only permissions. The application only reads data and never modifies anything in your Office 365 tenant.
-
-### Alternative: User-Scoped Scanning (More Restrictive)
+### For User-Only Scanning (Privacy-Focused)
 
 For a more restrictive setup that only scans the authenticated user's own data:
 
-In step 10 above, use these permissions instead:
-- `User.Read` - Read the signed-in user's profile only
-- `Files.Read` - Read the user's own files only
-- `Calendars.Read` - Read the user's own calendars only
-- `offline_access` - Maintain access to data
+1. Follow steps 1-9 above
+2. In step 10, add these **reduced** permissions instead:
+   - `User.Read` - Read the signed-in user's profile only
+   - `Files.Read` - Read the user's own files only
+   - `Calendars.Read` - Read the user's own calendars only
+   - `offline_access` - Maintain access to data
+3. **No admin consent required** - users can consent for themselves
+4. Set `SCAN_MODE=user_only` in your `.env` file
 
-This setup won't scan all users, but provides maximum privacy by only accessing the authenticated user's data.
+**Note on Permissions:** All permissions are read-only. The application never modifies any data in your Office 365 tenant.
 
 ## Installation
 
@@ -310,6 +331,11 @@ Both databases use the same schema with the following tables:
 - `AZURE_TENANT_ID` - Azure AD Tenant ID
 - `SESSION_SECRET` - Session encryption secret (generate a random string)
 
+#### Scanning Configuration
+- `SCAN_MODE` - Scanning mode: 'org_wide' (default) or 'user_only'
+  - `org_wide`: Scans all users in organization (requires admin consent)
+  - `user_only`: Scans only authenticated user's data (no admin consent needed)
+
 #### Optional Server Configuration
 - `PORT` - Server port (default: 3000)
 - `NODE_ENV` - Environment (development/production)
@@ -327,7 +353,7 @@ Both databases use the same schema with the following tables:
 - `DB_USER` - Database user (default: postgres)
 - `DB_PASSWORD` - Database password (required for PostgreSQL)
 
-#### Optional Scanning Configuration
+#### Optional Performance Configuration
 - `CONCURRENT_REQUESTS` - Concurrent API requests (default: 5)
 - `REQUEST_DELAY` - Delay between requests in ms (default: 100)
 - `MAX_RETRIES` - Maximum retry attempts (default: 3)
