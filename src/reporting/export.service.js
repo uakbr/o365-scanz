@@ -2,18 +2,18 @@ const userRepository = require('../storage/user.repository');
 const fileRepository = require('../storage/file.repository');
 const eventRepository = require('../storage/event.repository');
 const logger = require('../utils/logger');
+const { NotFoundError } = require('../utils/error-handler');
 
 class ExportService {
   /**
    * Export users as JSON
-   * @param {Object} options - Export options
    * @returns {Promise<Object>} JSON export
    */
-  async exportUsersAsJSON(options = {}) {
+  async exportUsersAsJSON() {
     logger.info('Exporting users as JSON');
 
     try {
-      const users = await userRepository.getAllUsers(options);
+      const users = await userRepository.getAllUsers();
 
       return {
         exportType: 'users',
@@ -29,14 +29,13 @@ class ExportService {
 
   /**
    * Export files as JSON
-   * @param {Object} options - Export options
    * @returns {Promise<Object>} JSON export
    */
-  async exportFilesAsJSON(options = {}) {
+  async exportFilesAsJSON() {
     logger.info('Exporting files as JSON');
 
     try {
-      const files = await fileRepository.getAllFiles(options);
+      const files = await fileRepository.getAllFiles();
 
       return {
         exportType: 'files',
@@ -52,14 +51,13 @@ class ExportService {
 
   /**
    * Export events as JSON
-   * @param {Object} options - Export options
    * @returns {Promise<Object>} JSON export
    */
-  async exportEventsAsJSON(options = {}) {
+  async exportEventsAsJSON() {
     logger.info('Exporting events as JSON');
 
     try {
-      const events = await eventRepository.getAllEvents(options);
+      const events = await eventRepository.getAllEvents();
 
       return {
         exportType: 'events',
@@ -117,7 +115,7 @@ class ExportService {
       const user = await userRepository.getUserById(userId);
 
       if (!user) {
-        throw new Error('User not found');
+        throw new NotFoundError('User not found');
       }
 
       const files = await fileRepository.getFilesByUserId(userId);

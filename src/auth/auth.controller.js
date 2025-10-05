@@ -116,10 +116,20 @@ class AuthController {
    * GET /auth/logout
    */
   logout = asyncHandler(async (req, res) => {
+    // Handle case where there's no session
+    if (!req.session) {
+      return res.json({
+        success: true,
+        message: 'Already logged out'
+      });
+    }
+
     const sessionId = req.session.id;
 
-    // Remove token
-    authService.removeToken(sessionId);
+    // Remove token if it exists
+    if (sessionId) {
+      authService.removeToken(sessionId);
+    }
 
     // Destroy session
     req.session.destroy((err) => {
