@@ -1,13 +1,17 @@
 require('dotenv').config();
 
-// Validate required database environment variables
-if (!process.env.DB_PASSWORD) {
-  console.error('FATAL: DB_PASSWORD environment variable is required');
-  console.error('Please configure DB_PASSWORD in your .env file');
-  process.exit(1);
-}
+// Database type: 'sqlite' (default, zero-config) or 'postgresql' (production)
+const dbType = process.env.DB_TYPE || 'sqlite';
 
-module.exports = {
+// SQLite configuration (default - no setup required)
+const sqliteConfig = {
+  type: 'sqlite',
+  filename: process.env.SQLITE_DB_PATH || './data/office365_scanner.db'
+};
+
+// PostgreSQL configuration (optional - for production use)
+const postgresConfig = {
+  type: 'postgresql',
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '5432'),
   database: process.env.DB_NAME || 'office365_scanner',
@@ -17,3 +21,15 @@ module.exports = {
   idleTimeoutMillis: 30000, // How long a client is allowed to remain idle before being closed
   connectionTimeoutMillis: 2000, // How long to wait when connecting a new client
 };
+
+// Validate PostgreSQL configuration if selected
+if (dbType === 'postgresql') {
+  if (!process.env.DB_PASSWORD) {
+    console.error('FATAL: DB_PASSWORD environment variable is required for PostgreSQL');
+    console.error('Please configure DB_PASSWORD in your .env file');
+    console.error('Or use the default SQLite database by removing DB_TYPE or setting DB_TYPE=sqlite');
+    process.exit(1);
+  }
+}
+
+module.exports = dbType === 'sqlite' ? sqliteConfig : postgresConfig;

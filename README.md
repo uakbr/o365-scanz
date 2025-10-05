@@ -1,6 +1,45 @@
 # Office 365 Scanner
 
-A comprehensive Office 365 Scanner that authenticates with Microsoft Graph API, scans organizational data (users, OneDrive files, calendar events), stores the data in a PostgreSQL database, and provides reporting and export capabilities.
+A comprehensive Office 365 Scanner that authenticates with Microsoft Graph API, scans organizational data (users, OneDrive files, calendar events), stores the data in a database, and provides reporting and export capabilities.
+
+## Quick Start
+
+**New in this version:** 
+- **Zero-configuration database setup!** No PostgreSQL installation or password required.
+- **Flexible permission model:** Choose between organization-wide or user-only scanning.
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Copy and configure environment variables
+cp .env.example .env
+# Edit .env and add your Azure AD credentials (see Azure AD Application Setup below)
+
+# 3. Run migrations (creates SQLite database automatically)
+npm run migrate
+
+# 4. Start the server
+npm start
+```
+
+That's it! The application will use SQLite by default with zero configuration.
+
+### Scanning Modes
+
+The application supports two scanning modes:
+
+1. **Organization-Wide Mode** (default)
+   - Scans all users, files, and calendars in your organization
+   - Requires admin consent for `User.Read.All` and `Files.Read.All` permissions
+   - Ideal for IT administrators and compliance teams
+
+2. **User-Only Mode** (privacy-focused)
+   - Scans only the authenticated user's own data
+   - Requires minimal permissions: `User.Read`, `Files.Read`, `Calendars.Read`
+   - No admin consent needed
+   - Perfect for individual users or privacy-sensitive environments
+   - Enable by setting `SCAN_MODE=user_only` in your `.env` file
 
 ## Features
 
@@ -31,10 +70,13 @@ A comprehensive Office 365 Scanner that authenticates with Microsoft Graph API, 
 Before you begin, ensure you have the following installed:
 
 - Node.js 18 or higher
-- PostgreSQL 14 or higher
 - An Azure AD application with appropriate permissions
 
+**Note:** PostgreSQL is optional. The application uses SQLite by default (zero-configuration embedded database).
+
 ## Azure AD Application Setup
+
+### For Organization-Wide Scanning (Default)
 
 1. Go to [Azure Portal](https://portal.azure.com)
 2. Navigate to **Azure Active Directory** > **App registrations**
@@ -48,12 +90,27 @@ Before you begin, ensure you have the following installed:
 7. Go to **Certificates & secrets** > **New client secret**
 8. Create a secret and note the **Value** (you won't be able to see it again)
 9. Go to **API permissions** > **Add a permission** > **Microsoft Graph** > **Delegated permissions**
-10. Add the following permissions:
-    - `User.Read.All`
-    - `Files.Read.All`
-    - `Calendars.Read`
-    - `offline_access`
-11. Click **Grant admin consent**
+10. Add the following **read-only** permissions:
+    - `User.Read.All` - Read all user profiles
+    - `Files.Read.All` - Read files in OneDrive for all users
+    - `Calendars.Read` - Read calendar events for all users
+    - `offline_access` - Maintain access to data
+11. Click **Grant admin consent** (requires admin privileges)
+
+### For User-Only Scanning (Privacy-Focused)
+
+For a more restrictive setup that only scans the authenticated user's own data:
+
+1. Follow steps 1-9 above
+2. In step 10, add these **reduced** permissions instead:
+   - `User.Read` - Read the signed-in user's profile only
+   - `Files.Read` - Read the user's own files only
+   - `Calendars.Read` - Read the user's own calendars only
+   - `offline_access` - Maintain access to data
+3. **No admin consent required** - users can consent for themselves
+4. Set `SCAN_MODE=user_only` in your `.env` file
+
+**Note on Permissions:** All permissions are read-only. The application never modifies any data in your Office 365 tenant.
 
 ## Installation
 
@@ -67,17 +124,12 @@ cd o365-scan
 npm install
 ```
 
-3. Create a PostgreSQL database:
-```bash
-createdb office365_scanner
-```
-
-4. Configure environment variables:
+3. Configure environment variables:
 ```bash
 cp .env.example .env
 ```
 
-5. Edit `.env` and fill in your credentials:
+4. Edit `.env` and fill in your Azure AD credentials:
 ```env
 # Azure AD Configuration
 AZURE_CLIENT_ID=your_client_id_here
@@ -85,28 +137,21 @@ AZURE_CLIENT_SECRET=your_client_secret_here
 AZURE_TENANT_ID=your_tenant_id_here
 REDIRECT_URI=http://localhost:3000/auth/callback
 
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=office365_scanner
-DB_USER=postgres
-DB_PASSWORD=your_database_password
+# Database - SQLite (default, no configuration needed)
+DB_TYPE=sqlite
 
 # Session Configuration
 SESSION_SECRET=generate_a_random_secret_key
-
-# Scanning Configuration
-CONCURRENT_REQUESTS=5
-REQUEST_DELAY=100
-MAX_RETRIES=3
 ```
 
-6. Run database migrations:
+5. Run database migrations:
 ```bash
 npm run migrate
 ```
 
-7. Start the server:
+This will automatically create the SQLite database file at `./data/office365_scanner.db`.
+
+6. Start the server:
 ```bash
 npm start
 ```
@@ -114,6 +159,30 @@ npm start
 For development with auto-reload:
 ```bash
 npm run dev
+```
+
+### Optional: PostgreSQL Setup (for production)
+
+If you prefer PostgreSQL for production use:
+
+1. Install and create a PostgreSQL database:
+```bash
+createdb office365_scanner
+```
+
+2. Update your `.env`:
+```env
+DB_TYPE=postgresql
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=office365_scanner
+DB_USER=postgres
+DB_PASSWORD=your_database_password
+```
+
+3. Run migrations:
+```bash
+npm run migrate
 ```
 
 ## API Endpoints
@@ -231,7 +300,20 @@ office365-scanner/
 
 ## Database Schema
 
-The application uses PostgreSQL with the following tables:
+The application supports two database backends:
+
+### SQLite (Default)
+- **Zero-configuration embedded database**
+- Perfect for development and single-user scenarios
+- No separate database server required
+- Data stored in `./data/office365_scanner.db`
+
+### PostgreSQL (Optional)
+- **Production-grade relational database**
+- Recommended for multi-user production environments
+- Requires PostgreSQL 14 or higher
+
+Both databases use the same schema with the following tables:
 
 - **users** - Office 365 user information
 - **files** - OneDrive file metadata
@@ -243,19 +325,35 @@ The application uses PostgreSQL with the following tables:
 
 ### Environment Variables
 
-- `PORT` - Server port (default: 3000)
-- `NODE_ENV` - Environment (development/production)
-- `LOG_LEVEL` - Logging level (DEBUG/INFO/WARN/ERROR)
+#### Required
 - `AZURE_CLIENT_ID` - Azure AD Application ID
 - `AZURE_CLIENT_SECRET` - Azure AD Application Secret
 - `AZURE_TENANT_ID` - Azure AD Tenant ID
-- `REDIRECT_URI` - OAuth2 redirect URI
-- `DB_HOST` - Database host
-- `DB_PORT` - Database port
-- `DB_NAME` - Database name
-- `DB_USER` - Database user
-- `DB_PASSWORD` - Database password
-- `SESSION_SECRET` - Session encryption secret
+- `SESSION_SECRET` - Session encryption secret (generate a random string)
+
+#### Scanning Configuration
+- `SCAN_MODE` - Scanning mode: 'org_wide' (default) or 'user_only'
+  - `org_wide`: Scans all users in organization (requires admin consent)
+  - `user_only`: Scans only authenticated user's data (no admin consent needed)
+
+#### Optional Server Configuration
+- `PORT` - Server port (default: 3000)
+- `NODE_ENV` - Environment (development/production)
+- `LOG_LEVEL` - Logging level (DEBUG/INFO/WARN/ERROR)
+- `REDIRECT_URI` - OAuth2 redirect URI (default: http://localhost:3000/auth/callback)
+
+#### Optional Database Configuration
+- `DB_TYPE` - Database type: 'sqlite' (default) or 'postgresql'
+- `SQLITE_DB_PATH` - SQLite database file path (default: ./data/office365_scanner.db)
+
+#### PostgreSQL Configuration (only if DB_TYPE=postgresql)
+- `DB_HOST` - Database host (default: localhost)
+- `DB_PORT` - Database port (default: 5432)
+- `DB_NAME` - Database name (default: office365_scanner)
+- `DB_USER` - Database user (default: postgres)
+- `DB_PASSWORD` - Database password (required for PostgreSQL)
+
+#### Optional Performance Configuration
 - `CONCURRENT_REQUESTS` - Concurrent API requests (default: 5)
 - `REQUEST_DELAY` - Delay between requests in ms (default: 100)
 - `MAX_RETRIES` - Maximum retry attempts (default: 3)
@@ -266,8 +364,9 @@ The application uses PostgreSQL with the following tables:
 - Use strong `SESSION_SECRET` in production
 - Enable HTTPS in production
 - Store tokens securely
-- Follow principle of least privilege for Azure AD permissions
-- Use connection pooling for database
+- **Minimal permissions:** The application uses read-only permissions and never modifies data in your Office 365 tenant
+- **Zero-password default:** SQLite requires no database password, reducing the attack surface for local development
+- Use connection pooling for database (PostgreSQL)
 - Implement rate limiting for API endpoints
 
 ## Error Handling

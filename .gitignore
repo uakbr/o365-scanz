@@ -51,6 +51,7 @@ temp/
 # Database
 *.sqlite
 *.db
+data/
 
 # Optional npm cache
 .npm
