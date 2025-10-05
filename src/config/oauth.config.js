@@ -23,11 +23,12 @@ module.exports = {
   tokenEndpoint: `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`,
 
   // Required scopes for Office 365 scanning
+  // Using minimal read-only permissions
   scopes: [
-    'User.Read.All',
-    'Files.Read.All',
-    'Calendars.Read',
-    'offline_access'
+    'User.Read.All',      // Read all user profiles (required for user scanning)
+    'Files.Read.All',     // Read files in all site collections (required for OneDrive scanning)
+    'Calendars.Read',     // Read calendars (required for calendar event scanning)
+    'offline_access'      // Maintain access to data (for token refresh)
   ],
 
   // Graph API configuration
