@@ -9,84 +9,10 @@ class EventRepository {
    * @returns {Promise<Object>} Inserted/updated event
    */
   async upsertEvent(eventData, userId) {
-    const query = `
-      INSERT INTO calendar_events (
-        id, user_id, subject, body_content,
-        start_datetime, end_datetime, location,
-        is_all_day, is_cancelled, organizer_email,
-        last_scanned_at, updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
-      ON CONFLICT (id)
-      DO UPDATE SET
-        subject = EXCLUDED.subject,
-        body_content = EXCLUDED.body_content,
-        start_datetime = EXCLUDED.start_datetime,
-        end_datetime = EXCLUDED.end_datetime,
-        location = EXCLUDED.location,
-        is_all_day = EXCLUDED.is_all_day,
-        is_cancelled = EXCLUDED.is_cancelled,
-        organizer_email = EXCLUDED.organizer_email,
-        last_scanned_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
-    `;
-
-    const values = [
-      eventData.id,
-      userId,
-      eventData.subject,
-      eventData.body?.content || null,
-      eventData.start?.dateTime ? new Date(eventData.start.dateTime) : null,
-      eventData.end?.dateTime ? new Date(eventData.end.dateTime) : null,
-      eventData.location?.displayName || null,
-      eventData.isAllDay || false,
-      eventData.isCancelled || false,
-      eventData.organizer?.emailAddress?.address || null
-    ];
-
-    try {
-      const result = await db.query(query, values);
-      const event = result.rows[0];
-
-      // Handle attendees
-      if (eventData.attendees && eventData.attendees.length > 0) {
-        await this.upsertAttendees(event.id, eventData.attendees);
-      }
-
-      return event;
-    } catch (error) {
-      logger.error('Error upserting event:', { eventId: eventData.id, error: error.message });
-      throw error;
-    }
-  }
-
-  /**
-   * Upsert attendees for an event
-   * @param {string} eventId - Event ID
-   * @param {Array<Object>} attendees - Array of attendees
-   * @returns {Promise<void>}
-   */
-  async upsertAttendees(eventId, attendees) {
-    // First, delete existing attendees
-    await db.query('DELETE FROM event_attendees WHERE event_id = $1', [eventId]);
-
-    // Then insert new attendees
-    for (const attendee of attendees) {
-      const query = `
-        INSERT INTO event_attendees (event_id, email, name, response_status)
-        VALUES ($1, $2, $3, $4)
-      `;
-
-      const values = [
-        eventId,
-        attendee.emailAddress?.address || null,
-        attendee.emailAddress?.name || null,
-        attendee.status?.response || null
-      ];
-
-      await db.query(query, values);
-    }
+    // Use transaction to ensure atomicity of event and attendee operations
+    return await db.transaction(async (client) => {
+      return await this.upsertEventInTransaction(eventData, userId, client);
+    });
   }
 
   /**
@@ -289,7 +215,7 @@ class EventRepository {
     const query = `
       SELECT * FROM calendar_events
       WHERE start_datetime >= NOW()
-      AND start_datetime <= NOW() + INTERVAL '$1 days'
+      AND start_datetime <= NOW() + ($1 || ' days')::INTERVAL
       ORDER BY start_datetime
     `;
     const result = await db.query(query, [parseInt(days)]);

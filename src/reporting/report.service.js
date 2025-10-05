@@ -2,15 +2,15 @@ const userRepository = require('../storage/user.repository');
 const fileRepository = require('../storage/file.repository');
 const eventRepository = require('../storage/event.repository');
 const logger = require('../utils/logger');
+const { NotFoundError } = require('../utils/error-handler');
 
 class ReportService {
   /**
    * Generate user report
-   * @param {Object} filters - Filter options
    * @returns {Promise<Object>} User report
    */
-  async generateUserReport(filters = {}) {
-    logger.info('Generating user report', { filters });
+  async generateUserReport() {
+    logger.info('Generating user report');
 
     try {
       const users = await userRepository.getAllUsers();
@@ -45,11 +45,10 @@ class ReportService {
 
   /**
    * Generate file report
-   * @param {Object} filters - Filter options
    * @returns {Promise<Object>} File report
    */
-  async generateFileReport(filters = {}) {
-    logger.info('Generating file report', { filters });
+  async generateFileReport() {
+    logger.info('Generating file report');
 
     try {
       const files = await fileRepository.getAllFiles();
@@ -91,11 +90,10 @@ class ReportService {
 
   /**
    * Generate events report
-   * @param {Object} filters - Filter options
    * @returns {Promise<Object>} Events report
    */
-  async generateEventsReport(filters = {}) {
-    logger.info('Generating events report', { filters });
+  async generateEventsReport() {
+    logger.info('Generating events report');
 
     try {
       const events = await eventRepository.getAllEvents();
@@ -152,7 +150,7 @@ class ReportService {
       const user = await userRepository.getUserById(userId);
 
       if (!user) {
-        throw new Error('User not found');
+        throw new NotFoundError('User not found');
       }
 
       const files = await fileRepository.getFilesByUserId(userId);

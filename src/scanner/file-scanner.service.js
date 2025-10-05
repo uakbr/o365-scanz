@@ -83,21 +83,13 @@ class FileScannerService {
     logger.debug('Scanning files for user', { userId });
 
     try {
-      // Fetch all files from user's OneDrive
-      const items = await this.graphApi.fetchWithRetry(() =>
-        this.graphApi.fetchAllWithPagination(
-          `/users/${userId}/drive/root/children`,
-          accessToken
-        )
-      );
+      // Recursively scan all files from user's OneDrive starting at root
+      const allFiles = await this.scanFolderRecursively(userId, 'root', accessToken);
 
-      // Filter only files (not folders)
-      const fileItems = items.filter(item => item.file);
-
-      logger.debug(`Fetched ${fileItems.length} files for user`, { userId });
+      logger.debug(`Fetched ${allFiles.length} files for user`, { userId });
 
       // Store files in database
-      for (const file of fileItems) {
+      for (const file of allFiles) {
         try {
           await fileRepository.upsertFile(file, userId);
         } catch (error) {
@@ -109,7 +101,7 @@ class FileScannerService {
         }
       }
 
-      return fileItems;
+      return allFiles;
     } catch (error) {
       // Handle case where user doesn't have OneDrive
       if (error.statusCode === 404) {
@@ -123,6 +115,41 @@ class FileScannerService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Recursively scan a folder and all its subfolders
+   * @param {string} userId - User ID
+   * @param {string} folderId - Folder ID (use 'root' for root folder)
+   * @param {string} accessToken - Access token
+   * @returns {Promise<Array>} Array of all files in folder and subfolders
+   */
+  async scanFolderRecursively(userId, folderId, accessToken) {
+    const items = await this.graphApi.fetchWithRetry(() =>
+      this.graphApi.fetchAllWithPagination(
+        `/users/${userId}/drive/items/${folderId}/children`,
+        accessToken
+      )
+    );
+
+    let allFiles = [];
+
+    for (const item of items) {
+      if (item.file) {
+        // This is a file, add it to the list
+        allFiles.push(item);
+      } else if (item.folder) {
+        // This is a folder, recursively scan it
+        const subFiles = await this.scanFolderRecursively(
+          userId,
+          item.id,
+          accessToken
+        );
+        allFiles = allFiles.concat(subFiles);
+      }
+    }
+
+    return allFiles;
   }
 
 
