@@ -20,11 +20,19 @@ async function requireAuth(req, res, next) {
       throw new AuthenticationError('Not authenticated. Please login.');
     }
 
-    // Get valid access token (will auto-refresh if needed)
-    const accessToken = await authService.getValidAccessToken(req.session.id);
+    const sessionId = req.session.id;
 
-    // Attach token to request for use in routes
+    // Create provider so downstream callers always fetch a fresh token
+    const accessTokenProvider = async () => {
+      return authService.getValidAccessToken(sessionId);
+    };
+
+    // Prime the token to fail fast if refresh is required
+    const accessToken = await accessTokenProvider();
+
+    // Attach token helpers to request for use in routes
     req.accessToken = accessToken;
+    req.accessTokenProvider = accessTokenProvider;
 
     next();
   } catch (error) {
@@ -53,8 +61,10 @@ async function requireAuth(req, res, next) {
 async function optionalAuth(req, res, next) {
   try {
     if (req.session && req.session.authenticated) {
-      const accessToken = await authService.getValidAccessToken(req.session.id);
-      req.accessToken = accessToken;
+      const sessionId = req.session.id;
+      const accessTokenProvider = async () => authService.getValidAccessToken(sessionId);
+      req.accessToken = await accessTokenProvider();
+      req.accessTokenProvider = accessTokenProvider;
     }
     next();
   } catch (error) {

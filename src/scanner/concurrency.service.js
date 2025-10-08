@@ -74,55 +74,6 @@ class ConcurrencyService {
   }
 
   /**
-   * Execute tasks in batches
-   * @param {Array} items - Items to process
-   * @param {Function} taskFunction - Function to execute for each item
-   * @param {number} batchSize - Batch size
-   * @returns {Promise<Array>} Results from all tasks
-   */
-  async runInBatches(items, taskFunction, batchSize = this.concurrentRequests) {
-    const results = [];
-    const totalBatches = Math.ceil(items.length / batchSize);
-
-    logger.info('Starting batch processing', {
-      totalItems: items.length,
-      batchSize,
-      totalBatches
-    });
-
-    for (let i = 0; i < items.length; i += batchSize) {
-      const batch = items.slice(i, i + batchSize);
-      const batchNumber = Math.floor(i / batchSize) + 1;
-
-      logger.info(`Processing batch ${batchNumber}/${totalBatches}`, {
-        batchSize: batch.length
-      });
-
-      const batchPromises = batch.map(item => taskFunction(item));
-      const batchResults = await Promise.allSettled(batchPromises);
-
-      results.push(...batchResults.map((result, index) => {
-        if (result.status === 'fulfilled') {
-          return { success: true, data: result.value, item: batch[index] };
-        } else {
-          return { success: false, error: result.reason.message, item: batch[index] };
-        }
-      }));
-    }
-
-    const successCount = results.filter(r => r.success).length;
-    const failureCount = results.filter(r => !r.success).length;
-
-    logger.info('Batch processing completed', {
-      total: items.length,
-      successful: successCount,
-      failed: failureCount
-    });
-
-    return results;
-  }
-
-  /**
    * Set concurrency limit
    * @param {number} limit - New concurrency limit
    */

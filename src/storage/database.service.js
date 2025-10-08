@@ -55,19 +55,7 @@ class DatabaseService {
       let result;
 
       if (this.dbType === 'sqlite') {
-        // Convert PostgreSQL-style $1, $2 to SQLite-style ?
-        const sqliteQuery = text.replace(/\$\d+/g, '?');
-        
-        if (sqliteQuery.trim().toUpperCase().startsWith('SELECT') || 
-            sqliteQuery.trim().toUpperCase().startsWith('WITH')) {
-          const stmt = this.db.prepare(sqliteQuery);
-          const rows = params ? stmt.all(...params) : stmt.all();
-          result = { rows, rowCount: rows.length };
-        } else {
-          const stmt = this.db.prepare(sqliteQuery);
-          const info = params ? stmt.run(...params) : stmt.run();
-          result = { rows: [], rowCount: info.changes };
-        }
+        result = this._runSqliteQuery(text, params);
       } else {
         result = await this.pool.query(text, params);
       }
@@ -89,7 +77,7 @@ class DatabaseService {
     if (this.dbType === 'sqlite') {
       // SQLite doesn't use connection pools, return a wrapper
       return {
-        query: this.query.bind(this),
+        query: async (text, params = []) => this._runSqliteQuery(text, params),
         release: () => {},
       };
     } else {
@@ -104,27 +92,24 @@ class DatabaseService {
    */
   async transaction(callback) {
     if (this.dbType === 'sqlite') {
-      // SQLite transaction using better-sqlite3
-      const transaction = this.db.transaction((cb) => {
-        const client = {
-          query: async (text, params) => {
-            const sqliteQuery = text.replace(/\$\d+/g, '?');
-            if (sqliteQuery.trim().toUpperCase().startsWith('SELECT')) {
-              const stmt = this.db.prepare(sqliteQuery);
-              const rows = params ? stmt.all(...params) : stmt.all();
-              return { rows, rowCount: rows.length };
-            } else {
-              const stmt = this.db.prepare(sqliteQuery);
-              const info = params ? stmt.run(...params) : stmt.run();
-              return { rows: [], rowCount: info.changes };
-            }
-          },
-          release: () => {},
-        };
-        return cb(client);
-      });
+      const begin = this.db.prepare('BEGIN');
+      const commit = this.db.prepare('COMMIT');
+      const rollback = this.db.prepare('ROLLBACK');
+      begin.run();
 
-      return await transaction(callback);
+      const client = {
+        query: async (text, params = []) => this._runSqliteQuery(text, params),
+        release: () => {},
+      };
+
+      try {
+        const result = await callback(client);
+        commit.run();
+        return result;
+      } catch (error) {
+        rollback.run();
+        throw error;
+      }
     } else {
       const client = await this.getClient();
       try {
@@ -167,6 +152,54 @@ class DatabaseService {
       await this.pool.end();
       logger.info('PostgreSQL pool closed');
     }
+  }
+
+  /**
+   * Execute a SQLite query with positional parameter conversion
+   * @param {string} text - SQL query text with $1 placeholders
+   * @param {Array} params - Parameters to bind
+   * @returns {{rows: Array, rowCount: number}} Execution result
+   * @private
+   */
+  _runSqliteQuery(text, params = []) {
+    const sqliteQuery = text.replace(/\$\d+/g, '?');
+    const trimmed = sqliteQuery.trim().toUpperCase();
+    const stmt = this.db.prepare(sqliteQuery);
+    const normalizedParams = params.map(param => this._normalizeSqliteParam(param));
+
+    if (trimmed.startsWith('SELECT') || trimmed.startsWith('WITH')) {
+      const rows = normalizedParams.length > 0 ? stmt.all(...normalizedParams) : stmt.all();
+      return { rows, rowCount: rows.length };
+    }
+
+    const info = normalizedParams.length > 0 ? stmt.run(...normalizedParams) : stmt.run();
+    return { rows: [], rowCount: info.changes };
+  }
+
+  /**
+   * Normalize parameter types for SQLite bindings
+   * @param {*} value - Raw parameter value
+   * @returns {*} Normalized value
+   * @private
+   */
+  _normalizeSqliteParam(value) {
+    if (value === undefined) {
+      return null;
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 1 : 0;
+    }
+
+    if (typeof value === 'object' && value !== null && typeof value.toISOString === 'function') {
+      return value.toISOString();
+    }
+
+    return value;
   }
 }
 

@@ -14,8 +14,11 @@ class FileScannerService {
    * @param {string} accessToken - Access token
    * @returns {Promise<Object>} Scan results
    */
-  async scanAllUserFiles(accessToken) {
+  async scanAllUserFiles(accessTokenOrProvider) {
     logger.info('Starting file scan for all users');
+    const tokenProvider = typeof accessTokenOrProvider === 'function'
+      ? accessTokenOrProvider
+      : async () => accessTokenOrProvider;
 
     try {
       // Get all users from database
@@ -33,14 +36,16 @@ class FileScannerService {
       }
 
       let totalFiles = 0;
+      let totalFailures = 0;
 
       // Scan files for each user concurrently
       const results = await concurrencyService.runConcurrent(
         users,
         async (user) => {
-          const userFiles = await this.scanUserFiles(user.id, accessToken);
-          totalFiles += userFiles.length;
-          return userFiles;
+          const summary = await this.scanUserFiles(user.id, tokenProvider);
+          totalFiles += summary.filesProcessed;
+          totalFailures += summary.filesFailed;
+          return summary;
         },
         {
           onProgress: (completed, total) => {
@@ -56,7 +61,8 @@ class FileScannerService {
         totalUsers: users.length,
         successful: successCount,
         failed: failureCount,
-        totalFiles
+        totalFiles,
+        failedFiles: totalFailures
       });
 
       return {
@@ -65,6 +71,7 @@ class FileScannerService {
         successfulUsers: successCount,
         failedUsers: failureCount,
         totalFiles,
+        failedFiles: totalFailures,
         results
       };
     } catch (error) {
@@ -79,34 +86,30 @@ class FileScannerService {
    * @param {string} accessToken - Access token
    * @returns {Promise<Array>} Array of files
    */
-  async scanUserFiles(userId, accessToken) {
+  async scanUserFiles(userId, accessTokenOrProvider) {
     logger.debug('Scanning files for user', { userId });
+    const tokenProvider = typeof accessTokenOrProvider === 'function'
+      ? accessTokenOrProvider
+      : async () => accessTokenOrProvider;
 
     try {
-      // Recursively scan all files from user's OneDrive starting at root
-      const allFiles = await this.scanFolderRecursively(userId, 'root', accessToken);
+      const summary = await this.scanFolderRecursively(userId, 'root', tokenProvider);
 
-      logger.debug(`Fetched ${allFiles.length} files for user`, { userId });
+      logger.debug('Completed file scan for user', {
+        userId,
+        processed: summary.filesProcessed,
+        failed: summary.filesFailed
+      });
 
-      // Store files in database
-      for (const file of allFiles) {
-        try {
-          await fileRepository.upsertFile(file, userId);
-        } catch (error) {
-          logger.error('Error storing file:', {
-            fileId: file.id,
-            userId,
-            error: error.message
-          });
-        }
-      }
-
-      return allFiles;
+      return summary;
     } catch (error) {
       // Handle case where user doesn't have OneDrive
       if (error.statusCode === 404) {
         logger.debug('User does not have OneDrive', { userId });
-        return [];
+        return {
+          filesProcessed: 0,
+          filesFailed: 0
+        };
       }
 
       logger.error('Error scanning user files:', {
@@ -124,32 +127,45 @@ class FileScannerService {
    * @param {string} accessToken - Access token
    * @returns {Promise<Array>} Array of all files in folder and subfolders
    */
-  async scanFolderRecursively(userId, folderId, accessToken) {
-    const items = await this.graphApi.fetchWithRetry(() =>
+  async scanFolderRecursively(userId, folderId, accessTokenOrProvider) {
+    let filesProcessed = 0;
+    let filesFailed = 0;
+
+    await this.graphApi.fetchWithRetry(() =>
       this.graphApi.fetchAllWithPagination(
         `/users/${userId}/drive/items/${folderId}/children`,
-        accessToken
+        accessTokenOrProvider,
+        {
+          onPage: async (items) => {
+            for (const item of items) {
+              if (item.file) {
+                try {
+                  await fileRepository.upsertFile(item, userId);
+                  filesProcessed++;
+                } catch (error) {
+                  filesFailed++;
+                  logger.error('Error storing file:', {
+                    fileId: item.id,
+                    userId,
+                    error: error.message
+                  });
+                }
+              } else if (item.folder) {
+                const nested = await this.scanFolderRecursively(
+                  userId,
+                  item.id,
+                  accessTokenOrProvider
+                );
+                filesProcessed += nested.filesProcessed;
+                filesFailed += nested.filesFailed;
+              }
+            }
+          }
+        }
       )
     );
 
-    let allFiles = [];
-
-    for (const item of items) {
-      if (item.file) {
-        // This is a file, add it to the list
-        allFiles.push(item);
-      } else if (item.folder) {
-        // This is a folder, recursively scan it
-        const subFiles = await this.scanFolderRecursively(
-          userId,
-          item.id,
-          accessToken
-        );
-        allFiles = allFiles.concat(subFiles);
-      }
-    }
-
-    return allFiles;
+    return { filesProcessed, filesFailed };
   }
 
 

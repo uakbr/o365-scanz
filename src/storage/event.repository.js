@@ -48,7 +48,7 @@ class EventRepository {
         is_all_day, is_cancelled, organizer_email,
         last_scanned_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       ON CONFLICT (id)
       DO UPDATE SET
         subject = EXCLUDED.subject,
@@ -59,33 +59,35 @@ class EventRepository {
         is_all_day = EXCLUDED.is_all_day,
         is_cancelled = EXCLUDED.is_cancelled,
         organizer_email = EXCLUDED.organizer_email,
-        last_scanned_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
+        last_scanned_at = EXCLUDED.last_scanned_at,
+        updated_at = EXCLUDED.updated_at
     `;
 
+    const timestamp = new Date().toISOString();
     const values = [
       eventData.id,
       userId,
       eventData.subject,
       eventData.body?.content || null,
-      eventData.start?.dateTime ? new Date(eventData.start.dateTime) : null,
-      eventData.end?.dateTime ? new Date(eventData.end.dateTime) : null,
+      eventData.start?.dateTime ? new Date(eventData.start.dateTime).toISOString() : null,
+      eventData.end?.dateTime ? new Date(eventData.end.dateTime).toISOString() : null,
       eventData.location?.displayName || null,
       eventData.isAllDay || false,
       eventData.isCancelled || false,
-      eventData.organizer?.emailAddress?.address || null
+      eventData.organizer?.emailAddress?.address || null,
+      timestamp,
+      timestamp
     ];
 
-    const result = await client.query(query, values);
-    const event = result.rows[0];
+    await client.query(query, values);
+    const eventId = eventData.id;
 
     // Handle attendees within the same transaction
     if (eventData.attendees && eventData.attendees.length > 0) {
-      await this.upsertAttendeesInTransaction(event.id, eventData.attendees, client);
+      await this.upsertAttendeesInTransaction(eventId, eventData.attendees, client);
     }
 
-    return event;
+    return { id: eventId };
   }
 
   /**
@@ -212,13 +214,15 @@ class EventRepository {
    * @returns {Promise<Array>} Array of upcoming events
    */
   async getUpcomingEvents(days = 30) {
+    const now = new Date();
+    const end = new Date(now.getTime() + parseInt(days, 10) * 24 * 60 * 60 * 1000);
     const query = `
       SELECT * FROM calendar_events
-      WHERE start_datetime >= NOW()
-      AND start_datetime <= NOW() + ($1 || ' days')::INTERVAL
+      WHERE start_datetime >= $1
+      AND start_datetime <= $2
       ORDER BY start_datetime
     `;
-    const result = await db.query(query, [parseInt(days)]);
+    const result = await db.query(query, [now.toISOString(), end.toISOString()]);
     return result.rows;
   }
 }

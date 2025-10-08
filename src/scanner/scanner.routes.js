@@ -27,7 +27,8 @@ router.use((req, res, next) => {
 router.post('/users', asyncHandler(async (req, res) => {
   logger.info('Starting user scan via API');
 
-  const result = await userScanner.scanUsers(req.accessToken);
+  const tokenProvider = req.accessTokenProvider || (() => Promise.resolve(req.accessToken));
+  const result = await userScanner.scanUsers(tokenProvider);
 
   res.json({
     success: true,
@@ -43,7 +44,8 @@ router.post('/users', asyncHandler(async (req, res) => {
 router.post('/files', asyncHandler(async (req, res) => {
   logger.info('Starting file scan via API');
 
-  const result = await fileScanner.scanAllUserFiles(req.accessToken);
+  const tokenProvider = req.accessTokenProvider || (() => Promise.resolve(req.accessToken));
+  const result = await fileScanner.scanAllUserFiles(tokenProvider);
 
   res.json({
     success: true,
@@ -93,7 +95,8 @@ router.post('/events', asyncHandler(async (req, res) => {
     });
   }
 
-  const result = await eventScanner.scanAllUserEvents(req.accessToken, options);
+  const tokenProvider = req.accessTokenProvider || (() => Promise.resolve(req.accessToken));
+  const result = await eventScanner.scanAllUserEvents(tokenProvider, options);
 
   res.json({
     success: true,
@@ -109,14 +112,16 @@ router.post('/events', asyncHandler(async (req, res) => {
 router.post('/all', asyncHandler(async (req, res) => {
   logger.info('Starting full scan (users, files, events)');
 
+  const tokenProvider = req.accessTokenProvider || (() => Promise.resolve(req.accessToken));
+
   // Scan users first
-  const userResult = await userScanner.scanUsers(req.accessToken);
+  const userResult = await userScanner.scanUsers(tokenProvider);
 
   // Then scan files
-  const fileResult = await fileScanner.scanAllUserFiles(req.accessToken);
+  const fileResult = await fileScanner.scanAllUserFiles(tokenProvider);
 
   // Then scan events
-  const eventResult = await eventScanner.scanAllUserEvents(req.accessToken);
+  const eventResult = await eventScanner.scanAllUserEvents(tokenProvider);
 
   res.json({
     success: true,
@@ -136,23 +141,26 @@ router.post('/all', asyncHandler(async (req, res) => {
 router.post('/user/:userId', asyncHandler(async (req, res) => {
   const { userId } = req.params;
   logger.info('Starting scan for specific user', { userId });
+  const tokenProvider = req.accessTokenProvider || (() => Promise.resolve(req.accessToken));
 
   // Scan user
-  const user = await userScanner.scanUserById(userId, req.accessToken);
+  const user = await userScanner.scanUserById(userId, tokenProvider);
 
   // Scan user files
-  const files = await fileScanner.scanUserFiles(userId, req.accessToken);
+  const fileSummary = await fileScanner.scanUserFiles(userId, tokenProvider);
 
   // Scan user events
-  const events = await eventScanner.scanUserEvents(userId, req.accessToken);
+  const eventSummary = await eventScanner.scanUserEvents(userId, tokenProvider);
 
   res.json({
     success: true,
     message: 'User scan completed',
     data: {
       user,
-      filesCount: files.length,
-      eventsCount: events.length
+      filesProcessed: fileSummary.filesProcessed,
+      filesFailed: fileSummary.filesFailed,
+      eventsProcessed: eventSummary.eventsProcessed,
+      eventsFailed: eventSummary.eventsFailed
     }
   });
 }));

@@ -15,8 +15,11 @@ class EventScannerService {
    * @param {Object} options - Options (startDate, endDate)
    * @returns {Promise<Object>} Scan results
    */
-  async scanAllUserEvents(accessToken, options = {}) {
+  async scanAllUserEvents(accessTokenOrProvider, options = {}) {
     logger.info('Starting calendar event scan for all users');
+    const tokenProvider = typeof accessTokenOrProvider === 'function'
+      ? accessTokenOrProvider
+      : async () => accessTokenOrProvider;
 
     try {
       // Get all users from database
@@ -34,14 +37,16 @@ class EventScannerService {
       }
 
       let totalEvents = 0;
+      let totalFailures = 0;
 
       // Scan events for each user concurrently
       const results = await concurrencyService.runConcurrent(
         users,
         async (user) => {
-          const userEvents = await this.scanUserEvents(user.id, accessToken, options);
-          totalEvents += userEvents.length;
-          return userEvents;
+          const summary = await this.scanUserEvents(user.id, tokenProvider, options);
+          totalEvents += summary.eventsProcessed;
+          totalFailures += summary.eventsFailed;
+          return summary;
         },
         {
           onProgress: (completed, total) => {
@@ -57,7 +62,8 @@ class EventScannerService {
         totalUsers: users.length,
         successful: successCount,
         failed: failureCount,
-        totalEvents
+        totalEvents,
+        failedEvents: totalFailures
       });
 
       return {
@@ -66,6 +72,7 @@ class EventScannerService {
         successfulUsers: successCount,
         failedUsers: failureCount,
         totalEvents,
+        failedEvents: totalFailures,
         results
       };
     } catch (error) {
@@ -81,8 +88,11 @@ class EventScannerService {
    * @param {Object} options - Options (startDate, endDate)
    * @returns {Promise<Array>} Array of events
    */
-  async scanUserEvents(userId, accessToken, options = {}) {
+  async scanUserEvents(userId, accessTokenOrProvider, options = {}) {
     logger.debug('Scanning calendar events for user', { userId });
+    const tokenProvider = typeof accessTokenOrProvider === 'function'
+      ? accessTokenOrProvider
+      : async () => accessTokenOrProvider;
 
     try {
       // Build endpoint with query parameters
@@ -98,31 +108,41 @@ class EventScannerService {
       }
 
       // Fetch all events from user's calendar
-      const events = await this.graphApi.fetchWithRetry(() =>
-        this.graphApi.fetchAllWithPagination(endpoint, accessToken)
+      let eventsProcessed = 0;
+      let eventsFailed = 0;
+
+      await this.graphApi.fetchWithRetry(() =>
+        this.graphApi.fetchAllWithPagination(endpoint, tokenProvider, {
+          onPage: async (events) => {
+            for (const event of events) {
+              try {
+                await eventRepository.upsertEvent(event, userId);
+                eventsProcessed++;
+              } catch (error) {
+                eventsFailed++;
+                logger.error('Error storing event:', {
+                  eventId: event.id,
+                  userId,
+                  error: error.message
+                });
+              }
+            }
+          }
+        })
       );
 
-      logger.debug(`Fetched ${events.length} events for user`, { userId });
+      logger.debug('Completed event scan for user', {
+        userId,
+        processed: eventsProcessed,
+        failed: eventsFailed
+      });
 
-      // Store events in database
-      for (const event of events) {
-        try {
-          await eventRepository.upsertEvent(event, userId);
-        } catch (error) {
-          logger.error('Error storing event:', {
-            eventId: event.id,
-            userId,
-            error: error.message
-          });
-        }
-      }
-
-      return events;
+      return { eventsProcessed, eventsFailed };
     } catch (error) {
       // Handle case where user doesn't have calendar access
       if (error.statusCode === 404 || error.statusCode === 403) {
         logger.debug('User calendar not accessible', { userId });
-        return [];
+        return { eventsProcessed: 0, eventsFailed: 0 };
       }
 
       logger.error('Error scanning user events:', {

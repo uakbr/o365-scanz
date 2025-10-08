@@ -13,17 +13,18 @@ class GraphApiService {
   /**
    * Make a GET request to Microsoft Graph API
    * @param {string} endpoint - API endpoint
-   * @param {string} accessToken - Access token
+   * @param {string|Function} accessToken - Access token or provider function
    * @param {Object} params - Query parameters
    * @returns {Promise<Object>} Response data
    */
   async get(endpoint, accessToken, params = {}) {
     const url = endpoint.startsWith('http') ? endpoint : `${this.baseUrl}${endpoint}`;
+    const token = await this.resolveAccessToken(accessToken);
 
     try {
       const response = await axios.get(url, {
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         params
@@ -38,24 +39,36 @@ class GraphApiService {
   /**
    * Fetch all data with automatic pagination (iterative)
    * @param {string} endpoint - API endpoint
-   * @param {string} accessToken - Access token
-   * @returns {Promise<Array>} All data from all pages
+   * @param {string|Function} accessToken - Access token or provider function
+   * @param {Object} options - Additional options (onPage callback)
+   * @returns {Promise<Array|undefined>} All data from all pages (unless streaming)
    */
-  async fetchAllWithPagination(endpoint, accessToken) {
-    const allData = [];
+  async fetchAllWithPagination(endpoint, accessToken, options = {}) {
+    const { onPage } = options;
+    const collectResults = !onPage;
+    const allData = collectResults ? [] : null;
     let currentEndpoint = endpoint;
     let pageCount = 0;
+    let itemCount = 0;
 
     try {
       while (currentEndpoint) {
         pageCount++;
-        logger.debug('Fetching page', { page: pageCount, currentCount: allData.length });
+        logger.debug('Fetching page', {
+          page: pageCount,
+          mode: collectResults ? 'collect' : 'stream'
+        });
 
         const response = await this.get(currentEndpoint, accessToken);
 
         // Add current page data
         if (response.value) {
-          allData.push(...response.value);
+          itemCount += response.value.length;
+          if (onPage) {
+            await onPage(response.value);
+          } else {
+            allData.push(...response.value);
+          }
         }
 
         // Check for next page
@@ -67,12 +80,28 @@ class GraphApiService {
         }
       }
 
-      logger.debug('Pagination complete', { totalItems: allData.length, pages: pageCount });
-      return allData;
+      logger.debug('Pagination complete', {
+        pages: pageCount,
+        items: itemCount
+      });
+
+      return collectResults ? allData : undefined;
     } catch (error) {
       logger.error('Error in pagination:', error.message);
       throw error;
     }
+  }
+
+  /**
+   * Resolve access token whether provided as string or async factory
+   * @param {string|Function} accessToken - Raw token or provider
+   * @returns {Promise<string>} Access token string
+   */
+  async resolveAccessToken(accessToken) {
+    if (typeof accessToken === 'function') {
+      return await accessToken();
+    }
+    return accessToken;
   }
 
   /**

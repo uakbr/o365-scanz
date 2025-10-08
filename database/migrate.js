@@ -138,8 +138,17 @@ async function runMigrations() {
     }
   } catch (error) {
     console.error('Migration failed:', error);
-    process.exit(1);
+    if (require.main === module) {
+      process.exit(1);
+    }
+    throw error;
   }
 }
 
-runMigrations();
+if (require.main === module) {
+  runMigrations();
+}
+
+module.exports = {
+  runMigrations
+};

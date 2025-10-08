@@ -14,7 +14,7 @@ class UserRepository {
         job_title, department, office_location,
         last_scanned_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (id)
       DO UPDATE SET
         user_principal_name = EXCLUDED.user_principal_name,
@@ -23,11 +23,11 @@ class UserRepository {
         job_title = EXCLUDED.job_title,
         department = EXCLUDED.department,
         office_location = EXCLUDED.office_location,
-        last_scanned_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
+        last_scanned_at = EXCLUDED.last_scanned_at,
+        updated_at = EXCLUDED.updated_at
     `;
 
+    const timestamp = new Date().toISOString();
     const values = [
       userData.id,
       userData.userPrincipalName,
@@ -35,12 +35,14 @@ class UserRepository {
       userData.mail,
       userData.jobTitle,
       userData.department,
-      userData.officeLocation
+      userData.officeLocation,
+      timestamp,
+      timestamp
     ];
 
     try {
-      const result = await db.query(query, values);
-      return result.rows[0];
+      await db.query(query, values);
+      return true;
     } catch (error) {
       logger.error('Error upserting user:', { userId: userData.id, error: error.message });
       throw error;
@@ -59,9 +61,10 @@ class UserRepository {
     const placeholders = [];
 
     users.forEach((user, idx) => {
-      const base = idx * 7;
+      const base = idx * 9;
+      const timestamp = new Date().toISOString();
       placeholders.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, NOW(), NOW())`
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9})`
       );
       values.push(
         user.id,
@@ -70,7 +73,9 @@ class UserRepository {
         user.mail,
         user.jobTitle,
         user.department,
-        user.officeLocation
+        user.officeLocation,
+        timestamp,
+        timestamp
       );
     });
 
@@ -89,8 +94,8 @@ class UserRepository {
         job_title = EXCLUDED.job_title,
         department = EXCLUDED.department,
         office_location = EXCLUDED.office_location,
-        last_scanned_at = NOW(),
-        updated_at = NOW()
+        last_scanned_at = EXCLUDED.last_scanned_at,
+        updated_at = EXCLUDED.updated_at
     `;
 
     try {

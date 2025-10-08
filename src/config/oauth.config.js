@@ -5,9 +5,7 @@ const requiredVars = ['AZURE_CLIENT_ID', 'AZURE_CLIENT_SECRET', 'AZURE_TENANT_ID
 const missingVars = requiredVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
-  console.error('FATAL: Missing required environment variables:', missingVars.join(', '));
-  console.error('Please configure these variables in your .env file');
-  process.exit(1);
+  throw new Error(`Missing required environment variables: ${missingVars.join(', ')}. Please configure them in your .env file.`);
 }
 
 const tenantId = process.env.AZURE_TENANT_ID;

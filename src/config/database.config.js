@@ -25,10 +25,7 @@ const postgresConfig = {
 // Validate PostgreSQL configuration if selected
 if (dbType === 'postgresql') {
   if (!process.env.DB_PASSWORD) {
-    console.error('FATAL: DB_PASSWORD environment variable is required for PostgreSQL');
-    console.error('Please configure DB_PASSWORD in your .env file');
-    console.error('Or use the default SQLite database by removing DB_TYPE or setting DB_TYPE=sqlite');
-    process.exit(1);
+    throw new Error('DB_PASSWORD environment variable is required for PostgreSQL. Configure DB_PASSWORD in your .env file or use SQLite by removing DB_TYPE or setting DB_TYPE=sqlite.');
   }
 }
 

@@ -15,7 +15,7 @@ class FileRepository {
         created_datetime, last_modified_datetime, mime_type,
         last_scanned_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (id)
       DO UPDATE SET
         name = EXCLUDED.name,
@@ -23,25 +23,27 @@ class FileRepository {
         web_url = EXCLUDED.web_url,
         last_modified_datetime = EXCLUDED.last_modified_datetime,
         mime_type = EXCLUDED.mime_type,
-        last_scanned_at = NOW(),
-        updated_at = NOW()
-      RETURNING *
+        last_scanned_at = EXCLUDED.last_scanned_at,
+        updated_at = EXCLUDED.updated_at
     `;
 
+    const timestamp = new Date().toISOString();
     const values = [
       fileData.id,
       userId,
       fileData.name,
       fileData.size || 0,
       fileData.webUrl,
-      fileData.createdDateTime ? new Date(fileData.createdDateTime) : null,
-      fileData.lastModifiedDateTime ? new Date(fileData.lastModifiedDateTime) : null,
-      fileData.file?.mimeType || null
+      fileData.createdDateTime ? new Date(fileData.createdDateTime).toISOString() : null,
+      fileData.lastModifiedDateTime ? new Date(fileData.lastModifiedDateTime).toISOString() : null,
+      fileData.file?.mimeType || null,
+      timestamp,
+      timestamp
     ];
 
     try {
-      const result = await db.query(query, values);
-      return result.rows[0];
+      await db.query(query, values);
+      return true;
     } catch (error) {
       logger.error('Error upserting file:', { fileId: fileData.id, error: error.message });
       throw error;
@@ -61,9 +63,10 @@ class FileRepository {
     const placeholders = [];
 
     files.forEach((file, idx) => {
-      const base = idx * 8;
+      const base = idx * 10;
+      const timestamp = new Date().toISOString();
       placeholders.push(
-        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, NOW(), NOW())`
+        `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
       );
       values.push(
         file.id,
@@ -71,9 +74,11 @@ class FileRepository {
         file.name,
         file.size || 0,
         file.webUrl,
-        file.createdDateTime ? new Date(file.createdDateTime) : null,
-        file.lastModifiedDateTime ? new Date(file.lastModifiedDateTime) : null,
-        file.file?.mimeType || null
+        file.createdDateTime ? new Date(file.createdDateTime).toISOString() : null,
+        file.lastModifiedDateTime ? new Date(file.lastModifiedDateTime).toISOString() : null,
+        file.file?.mimeType || null,
+        timestamp,
+        timestamp
       );
     });
 
@@ -91,8 +96,8 @@ class FileRepository {
         web_url = EXCLUDED.web_url,
         last_modified_datetime = EXCLUDED.last_modified_datetime,
         mime_type = EXCLUDED.mime_type,
-        last_scanned_at = NOW(),
-        updated_at = NOW()
+        last_scanned_at = EXCLUDED.last_scanned_at,
+        updated_at = EXCLUDED.updated_at
     `;
 
     try {
